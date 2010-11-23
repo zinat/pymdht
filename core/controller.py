@@ -171,7 +171,10 @@ class Controller:
             if msg.sender_id == self._my_id:
                 logger.debug('Got a msg from myself:\n%r', msg)
                 return
-            response_msg = self._get_response(msg)
+            if msg.query == message.GET_PEERS:
+                response_msg = message.OutgoingErrorMsg(message.GENERIC_E)
+            else:
+                response_msg = self._get_response(msg)
             if response_msg:
                 bencoded_response = response_msg.encode(msg.tid)
                 self._reactor.sendto(bencoded_response, addr)
