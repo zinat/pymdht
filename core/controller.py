@@ -334,6 +334,7 @@ class Controller:
         datagrams = self._register_queries(maintenance_queries_to_send)
         datagrams_to_send.extend(datagrams)
         if exp_queries_to_send:
+            #print '>>>>>>>>>>>>>>>>>>>>>>>>', exp_queries_to_send
             datagrams = self._register_queries(exp_queries_to_send)
             datagrams_to_send.extend(datagrams)
         return self._next_main_loop_call_ts, datagrams_to_send
