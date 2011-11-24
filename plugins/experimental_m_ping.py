@@ -48,7 +48,7 @@ class ExperimentalManager:
             self.pinged_ips[msg.src_node.ip] = STATUS_OK
             elapsed_time = time.time() - related_query.experimental_obj.query_ts
             print 'RTT = ',elapsed_time
-        pass
+        
            
     def on_timeout(self, related_query):
         if related_query.experimental_obj:
