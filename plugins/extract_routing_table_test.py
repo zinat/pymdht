@@ -49,14 +49,17 @@ class ExtractingTable(object):
         return level
 
     def _write(self, csv_file):
-        csv_file.writerow('table')
+        csv_file.writerow(['table'])
+        n = self.node
+        ip, port = n.addr
+        csv_file.writerow([ip, port, repr(n.id), NO_VERSION, 0])
         for level in self._levels:
-            csv_file.writerow('level')
+            csv_file.writerow(['level'])
             for pnode in level:
                 csv_file.writerow(pnode.get_csv())
-            csv_file.writerow('elevel')
+            csv_file.writerow(['elevel'])
 
-        csv_file.writerow('etable')
+        csv_file.writerow(['etable'])
             
 
 class PingedNode(object):
@@ -89,7 +92,8 @@ class ExtractingQueue(object):
         self._extracting_queue = []      #Node which are extracting      
         self._all_extracting_ips = set()
         self._next_snode_to_extract = 0
-        self._csv_file = csv.writer(open('exp_extract.csv', 'w'))
+        self._file = open('exp_extract.csv', 'w')
+        self._csv_file = csv.writer(self._file)
         
     def add(self, node_):
         if node_.addr[0] in self._all_extracting_ips:
@@ -103,6 +107,7 @@ class ExtractingQueue(object):
             self._extracting_queue) < MAX_PARALLEL_EXTRACT:
             node_ = self._to_extract_queue.pop(0)
             etable = ExtractingTable(node_)
+            print 'extraction START'
             self._extracting_queue.append(etable)
         current_etable_index = self._next_snode_to_extract
         etable = self._extracting_queue[self._next_snode_to_extract]
@@ -111,18 +116,19 @@ class ExtractingQueue(object):
         level = etable.next_level()
         queries = []
         if level:
-            print 'extracting'
+            print 'extracting...', etable.node.addr, level
             queries.append(
                 self.msg_f.outgoing_find_node_query(
                     etable.node, etable.node.id.generate_close_id(level),
                     experimental_obj=etable))
         else:
-            print 'extraction done'
+            print 'extraction DONE'
             # extraction done
             if etable.last_fn_query_ts > TIMEOUT:
                 print 'write'
                 # all pings timed out, write to file
                 etable._write(self._csv_file)
+                self._file.flush()
                 del self._extracting_queue[current_etable_index]
         return queries
 
@@ -148,7 +154,7 @@ class ExperimentalManager:
 
         if related_query.query == message.PING:
             # exp_obj is a PingedNode
-            exp_obj.status = related_query.rtt
+            exp_obj.rtt = related_query.rtt
         elif related_query.query == message.FIND_NODE:
             # exp_obj is a ExtractingTable
             pnodes = [PingedNode(node_) for node_ in msg.nodes]
@@ -162,7 +168,7 @@ class ExperimentalManager:
         if not exp_obj:
             return []
         if related_query.query == message.PING:
-            exp_obj.status = TIMEOUT
+            exp_obj.rtt = TIMEOUT
         elif related_query.query == message.FIND_NODE:
             # timeout while extracting: retry?????
             pass
@@ -174,14 +180,11 @@ class ExperimentalManager:
             return []
         if related_query.query == message.PING:
             # consider ERROR as TIMEOUT
-            exp_obj.status = TIMEOUT
+            exp_obj.rtt = TIMEOUT
         elif related_query.query == message.FIND_NODE:
             # ERROR while extracting: retry?????
             pass
         return []
 
     def on_stop(self):
-        #TODO: write to file
-        
-        return
-    
+        self._file.close()
