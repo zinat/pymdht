@@ -34,14 +34,14 @@ class ExperimentalManager:
         if self._send_query:
             # We only want to extract from ONE node
             self._send_query = False 
-            print 'Got query (%s) from  Node  %r ' % (
-                            msg.query ,  msg.src_node)
+            print 'Got query (%s) from  Node  %r  version%r' % (
+                            msg.query ,  msg.src_node, msg.version)
             #keep the node in a list which to be extracted
             self.nodes_to_extract.append(msg.src_node) 
             
             exp_obj = ExpObj()
 
-             exp_obj.reg_status_of_node(msg.src_node, STATUS_ON_PROCESS)
+             #exp_obj.reg_status_of_node(msg.src_node, STATUS_ON_PROCESS)
             
             
             log_distance = exp_obj.next_log_dist()           

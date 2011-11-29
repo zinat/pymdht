@@ -49,22 +49,26 @@ class ExtractingTable(object):
         return level
 
     def _write(self, csv_file):
-        csv_file.writerow('table')
+        csv_file.writerow(['table'])
+        n = self.node
+        ip, port = n.addr
+        csv_file.writerow([ip, port, repr(n.id), NO_VERSION, 0])
         for level in self._levels:
-            csv_file.writerow('level')
+            csv_file.writerow(['level'])
+            csv_file.writerow([level])
             for pnode in level:
                 csv_file.writerow(pnode.get_csv())
-            csv_file.writerow('elevel')
+            csv_file.writerow(['elevel'])
 
-        csv_file.writerow('etable')
+        csv_file.writerow(['etable'])
             
 
 class PingedNode(object):
 
-    def __init__(self, node_):
+    def __init__(self, node_,version_):
         self.node = node_
         self.rtt = 0
-        self.version = NO_VERSION
+        self.version = version_
 
     def __eq__(self, other):
         # nodes are defined per IP address alone!!!
@@ -75,10 +79,11 @@ class PingedNode(object):
 
     def __hash__(self):
         return self.node.addr[0]
-
+    
     def get_csv(self):
         return [self.node.addr[0], str(self.node.addr[1]),
                 repr(self.node.id), self.version, str(self.rtt)]
+        
 
     
 class ExtractingQueue(object):
@@ -88,21 +93,30 @@ class ExtractingQueue(object):
         self._to_extract_queue = []      #Node to be extract
         self._extracting_queue = []      #Node which are extracting      
         self._all_extracting_ips = set()
-        self._next_snode_to_extract = 0
-        self._csv_file = csv.writer(open('exp_extract.csv', 'w'))
+        self.all_version = set()
         
-    def add(self, node_):
+        self._next_snode_to_extract = 0
+        self._file = open('exp_extract_node.csv', 'w')
+        self._csv_file = csv.writer(self._file)
+        
+    def add_node(self, node_):
         if node_.addr[0] in self._all_extracting_ips:
             return #already sampled
         print 'added'
         self._all_extracting_ips.add(node_.addr[0])
         self._to_extract_queue.append(node_)
-
+    
+    def add_version(self, node_,version_):
+        if node_:
+            self.all_version.append(version_)
+        
     def get_fn_queries(self):
         if self._to_extract_queue and len(
             self._extracting_queue) < MAX_PARALLEL_EXTRACT:
             node_ = self._to_extract_queue.pop(0)
+            
             etable = ExtractingTable(node_)
+            print 'extraction START '
             self._extracting_queue.append(etable)
         current_etable_index = self._next_snode_to_extract
         etable = self._extracting_queue[self._next_snode_to_extract]
@@ -111,18 +125,19 @@ class ExtractingQueue(object):
         level = etable.next_level()
         queries = []
         if level:
-            print 'extracting'
+            print 'extracting...', etable.node.addr, level
             queries.append(
                 self.msg_f.outgoing_find_node_query(
                     etable.node, etable.node.id.generate_close_id(level),
                     experimental_obj=etable))
         else:
-            print 'extraction done'
+            print 'extraction DONE'
             # extraction done
             if etable.last_fn_query_ts > TIMEOUT:
                 print 'write'
                 # all pings timed out, write to file
                 etable._write(self._csv_file)
+                self._file.flush()
                 del self._extracting_queue[current_etable_index]
         return queries
 
@@ -130,40 +145,43 @@ class ExtractingQueue(object):
 class ExperimentalManager:
     def __init__(self, my_id, msg_f):
         self.extracting_queue = ExtractingQueue(msg_f)
+       
         self.my_id = my_id
         self.msg_f = msg_f
         
     def on_query_received(self, msg):
-        self.extracting_queue.add(msg.src_node)
+        self.extracting_queue.add_node(msg.src_node)
         find_msgs = self.extracting_queue.get_fn_queries()
         return find_msgs
 
     def on_response_received(self, msg, related_query):
-        #self.extracting_queue.add(msg.src_node)
+        self.extracting_queue.add_node(msg.src_node)
+        version_ = msg.version
+        
         ping_queries = []
         find_node_queries = []
         exp_obj = related_query.experimental_obj
         if not exp_obj:
             return []
-
+        
         if related_query.query == message.PING:
             # exp_obj is a PingedNode
-            exp_obj.status = related_query.rtt
+            exp_obj.rtt = related_query.rtt
         elif related_query.query == message.FIND_NODE:
             # exp_obj is a ExtractingTable
-            pnodes = [PingedNode(node_) for node_ in msg.nodes]
+            pnodes = [PingedNode(node_,version_) for node_ in msg.nodes]
             exp_obj.add_pnodes(pnodes)
             ping_queries = [self.msg_f.outgoing_ping_query(
                     node_, pnode) for pnode in pnodes]
         return ping_queries + find_node_queries
 
     def on_timeout(self, related_query):
-        print "timeout"
         exp_obj = related_query.experimental_obj
         if not exp_obj:
             return []
         if related_query.query == message.PING:
-            exp_obj.status = TIMEOUT
+            print "timeOUT"
+            exp_obj.rtt = TIMEOUT
         elif related_query.query == message.FIND_NODE:
             # timeout while extracting: retry?????
             pass
@@ -175,16 +193,11 @@ class ExperimentalManager:
             return []
         if related_query.query == message.PING:
             # consider ERROR as TIMEOUT
-            exp_obj.status = TIMEOUT
+            exp_obj.rtt = TIMEOUT
         elif related_query.query == message.FIND_NODE:
             # ERROR while extracting: retry?????
             pass
         return []
 
     def on_stop(self):
-        #TODO: write to file
-        
-        return
-
-        
-        
+        self._file.close()
